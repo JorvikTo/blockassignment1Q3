@@ -44,8 +44,6 @@ describe("DecentralizedTreasury", function () {
 
     it("Should have correct initial voting parameters", async function () {
       expect(await treasury.votingPeriod()).to.equal(3 * 24 * 60 * 60); // 3 days
-      expect(await treasury.quorumPercentage()).to.equal(50);
-      expect(await treasury.majorityPercentage()).to.equal(51);
     });
   });
 
@@ -209,14 +207,16 @@ describe("DecentralizedTreasury", function () {
         .createProposal(recipient.address, PROPOSAL_AMOUNT, "Test proposal");
     });
 
-    it("Should execute proposal with majority approval", async function () {
+    it("Should execute proposal when affirmative votes exceed 50% of total voting power", async function () {
       // addr1 (3000 tokens) + addr2 (2000 tokens) = 5000 votes for
       // Total supply = 10000 tokens
-      // Quorum: 5000/10000 = 50% (meets requirement)
-      // Majority: 5000/5000 = 100% (exceeds 51%)
-
+      // 5000/10000 = 50% (NOT enough, needs >50%)
+      // Need 5001 or more to pass
+      
+      // Let's use addr1 (3000) + addr2 (2000) + addr3 (1000) = 6000 > 50%
       await treasury.connect(addr1).vote(proposalId, true);
       await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
 
       // Fast forward past voting deadline
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
@@ -241,9 +241,9 @@ describe("DecentralizedTreasury", function () {
       expect(proposal.state).to.equal(2); // Executed
     });
 
-    it("Should reject proposal without majority", async function () {
+    it("Should reject proposal when affirmative votes do not exceed 50%", async function () {
       // addr1 votes for (3000), addr2 votes against (2000)
-      // Total: 5000 votes, For: 3000 = 60% (meets quorum and majority)
+      // Total supply: 10000, For: 3000 = 30% (does not exceed 50%)
 
       await treasury.connect(addr1).vote(proposalId, true);
       await treasury.connect(addr2).vote(proposalId, false);
@@ -253,15 +253,16 @@ describe("DecentralizedTreasury", function () {
       await ethers.provider.send("evm_mine");
 
       await expect(treasury.executeProposal(proposalId))
-        .to.emit(treasury, "ProposalExecuted"); // Still executes because 60% > 51%
+        .to.emit(treasury, "ProposalRejected")
+        .withArgs(proposalId);
 
       const proposal = await treasury.getProposal(proposalId);
-      expect(proposal.state).to.equal(2); // Executed
+      expect(proposal.state).to.equal(3); // Rejected
     });
 
-    it("Should reject proposal when against votes win", async function () {
+    it("Should reject proposal when all votes are against", async function () {
       // addr1 votes against (3000), addr2 votes against (2000)
-      // Total: 5000, Against: 5000 = 100% against
+      // Total supply: 10000, For: 0 = 0% (does not exceed 50%)
 
       await treasury.connect(addr2).vote(proposalId, false);
       await treasury.connect(addr1).vote(proposalId, false);
@@ -278,24 +279,28 @@ describe("DecentralizedTreasury", function () {
       expect(proposal.state).to.equal(3); // Rejected
     });
 
-    it("Should fail if quorum not reached", async function () {
-      // Only addr3 votes (1000 tokens out of 10000)
-      // Quorum needs 50% = 5000 tokens
+    it("Should reject if affirmative votes equal exactly 50%", async function () {
+      // addr1 (3000) + addr2 (2000) = 5000 = exactly 50% (NOT enough, needs >50%)
 
-      await treasury.connect(addr3).vote(proposalId, true);
+      await treasury.connect(addr1).vote(proposalId, true);
+      await treasury.connect(addr2).vote(proposalId, true);
 
       // Fast forward past voting deadline
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
       await ethers.provider.send("evm_mine");
 
-      await expect(
-        treasury.executeProposal(proposalId)
-      ).to.be.revertedWith("Quorum not reached");
+      await expect(treasury.executeProposal(proposalId))
+        .to.emit(treasury, "ProposalRejected")
+        .withArgs(proposalId);
+      
+      const proposal = await treasury.getProposal(proposalId);
+      expect(proposal.state).to.equal(3); // Rejected
     });
 
     it("Should fail if voting period not ended", async function () {
       await treasury.connect(addr1).vote(proposalId, true);
       await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
 
       await expect(
         treasury.executeProposal(proposalId)
@@ -305,6 +310,7 @@ describe("DecentralizedTreasury", function () {
     it("Should fail if proposal already executed", async function () {
       await treasury.connect(addr1).vote(proposalId, true);
       await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
 
       // Fast forward past voting deadline
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
@@ -324,19 +330,6 @@ describe("DecentralizedTreasury", function () {
       await treasury.setVotingPeriod(newPeriod);
       expect(await treasury.votingPeriod()).to.equal(newPeriod);
     });
-
-    it("Should allow setting quorum percentage", async function () {
-      await treasury.setQuorumPercentage(60);
-      expect(await treasury.quorumPercentage()).to.equal(60);
-    });
-
-    it("Should allow setting majority percentage", async function () {
-      await treasury.setMajorityPercentage(66);
-      expect(await treasury.majorityPercentage()).to.equal(66);
-    });
-
-    it("Should reject invalid quorum percentage", async function () {
-      await expect(
         treasury.setQuorumPercentage(0)
       ).to.be.revertedWith("Invalid percentage");
 
@@ -375,14 +368,14 @@ describe("DecentralizedTreasury", function () {
       expect(proposal2.proposer).to.equal(addr2.address);
     });
 
-    it("Should handle exact quorum threshold", async function () {
-      // Create proposal and get exactly 50% of votes
+    it("Should handle exactly 50% affirmative votes (should reject)", async function () {
+      // Create proposal and get exactly 50% of votes (needs >50%)
       const proposalId = 1;
       await treasury
         .connect(addr1)
-        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Exact quorum");
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Exact 50%");
 
-      // addr1 (3000) + addr2 (2000) = 5000 = exactly 50%
+      // addr1 (3000) + addr2 (2000) = 5000 = exactly 50% (NOT enough)
       await treasury.connect(addr1).vote(proposalId, true);
       await treasury.connect(addr2).vote(proposalId, true);
 
@@ -390,28 +383,23 @@ describe("DecentralizedTreasury", function () {
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
       await ethers.provider.send("evm_mine");
 
-      // Should execute successfully
+      // Should reject since exactly 50% is not > 50%
       await expect(treasury.executeProposal(proposalId)).to.emit(
         treasury,
-        "ProposalExecuted"
+        "ProposalRejected"
       );
     });
 
-    it("Should handle exact majority threshold", async function () {
-      // Set majority to 60%
-      await treasury.setMajorityPercentage(60);
-
+    it("Should handle just over 50% affirmative votes (should execute)", async function () {
       const proposalId = 1;
       await treasury
         .connect(addr1)
-        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Exact majority");
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Just over 50%");
 
-      // Total votes: 10000 (all tokens)
-      // For: addr1 (3000) + addr2 (2000) + addr3 (1000) = 6000 = 60%
+      // Total: 10000. addr1 (3000) + addr2 (2000) + addr3 (1000) = 6000 > 50%
       await treasury.connect(addr1).vote(proposalId, true);
       await treasury.connect(addr2).vote(proposalId, true);
       await treasury.connect(addr3).vote(proposalId, true);
-      await treasury.connect(owner).vote(proposalId, false); // 4000 against
 
       // Fast forward
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);

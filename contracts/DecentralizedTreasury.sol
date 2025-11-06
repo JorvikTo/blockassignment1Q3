@@ -8,35 +8,41 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @title DecentralizedTreasury
  * @dev Treasury contract with token-weighted voting governance
  * Enables decentralized fund management through proposals and voting
+ * 
+ * Key Features:
+ * - Any token holder can propose fund transfers
+ * - Voting power is proportional to token holdings (1 token = 1 vote)
+ * - Proposals auto-execute when affirmative votes exceed 50% of total voting power
+ * - All key actions emit events for external indexing
  */
 contract DecentralizedTreasury is ReentrancyGuard {
+    // Governance token used for voting power
     IERC20 public governanceToken;
     
-    // Proposal states
+    // Proposal states for lifecycle tracking
     enum ProposalState { Pending, Active, Executed, Rejected, Cancelled }
     
-    // Proposal structure
+    // Proposal data structure
     struct Proposal {
-        uint256 id;
-        address proposer;
-        address recipient;
-        uint256 amount;
-        string description;
-        uint256 votesFor;
-        uint256 votesAgainst;
-        uint256 createdAt;
-        uint256 votingDeadline;
-        ProposalState state;
-        mapping(address => bool) hasVoted;
-        mapping(address => uint256) voterWeights;
+        uint256 id;                          // Unique proposal identifier
+        address proposer;                    // Address that created the proposal
+        address recipient;                   // Recipient of funds (to address)
+        uint256 amount;                      // Amount of ETH to transfer
+        string description;                  // Purpose/description of the proposal
+        uint256 votesFor;                    // Total affirmative votes (yesVotes)
+        uint256 votesAgainst;                // Total negative votes (noVotes)
+        uint256 createdAt;                   // Timestamp of proposal creation
+        uint256 votingDeadline;              // Timestamp when voting ends
+        ProposalState state;                 // Current state of the proposal
+        mapping(address => bool) hasVoted;   // Track if address has voted
+        mapping(address => uint256) voterWeights; // Record voting power used
     }
     
     // State variables
-    uint256 public proposalCount;
-    uint256 public votingPeriod = 3 days;
-    uint256 public quorumPercentage = 50; // 50% of total supply needed for quorum
-    uint256 public majorityPercentage = 51; // 51% of votes for approval
+    uint256 public proposalCount;            // Total number of proposals created
+    uint256 public votingPeriod = 3 days;    // Duration for voting on proposals
     
+    // Mapping from proposal ID to proposal data
     mapping(uint256 => Proposal) public proposals;
     
     // Events
@@ -66,8 +72,9 @@ contract DecentralizedTreasury is ReentrancyGuard {
     event FundsWithdrawn(address indexed recipient, uint256 amount);
     
     /**
-     * @dev Constructor to initialize the treasury with governance token
-     * @param _governanceToken Address of the governance token contract
+     * @dev Constructor - Initializes the DAO treasury and assigns governance token
+     * Sets up the voting power mechanism tied to token holdings
+     * @param _governanceToken Address of the governance token contract for voting power
      */
     constructor(address _governanceToken) {
         require(_governanceToken != address(0), "Invalid token address");
@@ -75,7 +82,8 @@ contract DecentralizedTreasury is ReentrancyGuard {
     }
     
     /**
-     * @dev Allow contract to receive ETH
+     * @dev Allow contract to receive ETH from DAO contributions
+     * Emits FundsDeposited event for tracking
      */
     receive() external payable {
         emit FundsDeposited(msg.sender, msg.value);
@@ -83,6 +91,7 @@ contract DecentralizedTreasury is ReentrancyGuard {
     
     /**
      * @dev Deposit funds to treasury
+     * Allows DAO members to contribute funds
      */
     function deposit() external payable {
         require(msg.value > 0, "Must deposit some ETH");
@@ -98,7 +107,47 @@ contract DecentralizedTreasury is ReentrancyGuard {
     }
     
     /**
-     * @dev Create a new fund transfer proposal
+     * @dev proposeTransfer - Creates a proposal specifying recipient, amount, and purpose
+     * Any member with tokens can propose a payment or funding allocation
+     * @param to Address to receive funds (recipient)
+     * @param amount Amount of ETH to transfer
+     * @param description Purpose and details of the proposal
+     * @return proposalId ID of the created proposal for tracking
+     */
+    function proposeTransfer(
+        address to,
+        uint256 amount,
+        string memory description
+    ) public returns (uint256) {
+        // Validate inputs
+        require(to != address(0), "Invalid recipient");
+        require(amount > 0, "Amount must be greater than 0");
+        require(amount <= address(this).balance, "Insufficient treasury funds");
+        require(governanceToken.balanceOf(msg.sender) > 0, "Must hold tokens to propose");
+        
+        // Increment proposal counter
+        proposalCount++;
+        uint256 proposalId = proposalCount;
+        
+        // Initialize proposal data
+        Proposal storage newProposal = proposals[proposalId];
+        newProposal.id = proposalId;
+        newProposal.proposer = msg.sender;
+        newProposal.recipient = to;
+        newProposal.amount = amount;
+        newProposal.description = description;
+        newProposal.createdAt = block.timestamp;
+        newProposal.votingDeadline = block.timestamp + votingPeriod;
+        newProposal.state = ProposalState.Active;
+        
+        // Emit event for external indexing
+        emit ProposalCreated(proposalId, msg.sender, to, amount, description);
+        
+        return proposalId;
+    }
+    
+    /**
+     * @dev createProposal - Alias for proposeTransfer for backward compatibility
      * @param recipient Address to receive funds
      * @param amount Amount of ETH to transfer
      * @param description Description of the proposal
@@ -109,81 +158,108 @@ contract DecentralizedTreasury is ReentrancyGuard {
         uint256 amount,
         string calldata description
     ) external returns (uint256) {
-        require(recipient != address(0), "Invalid recipient");
-        require(amount > 0, "Amount must be greater than 0");
-        require(amount <= address(this).balance, "Insufficient treasury funds");
-        require(governanceToken.balanceOf(msg.sender) > 0, "Must hold tokens to propose");
-        
-        proposalCount++;
-        uint256 proposalId = proposalCount;
-        
-        Proposal storage newProposal = proposals[proposalId];
-        newProposal.id = proposalId;
-        newProposal.proposer = msg.sender;
-        newProposal.recipient = recipient;
-        newProposal.amount = amount;
-        newProposal.description = description;
-        newProposal.createdAt = block.timestamp;
-        newProposal.votingDeadline = block.timestamp + votingPeriod;
-        newProposal.state = ProposalState.Active;
-        
-        emit ProposalCreated(proposalId, msg.sender, recipient, amount, description);
-        
-        return proposalId;
+        return proposeTransfer(recipient, amount, description);
     }
     
     /**
-     * @dev Cast a vote on a proposal
+     * @dev vote - Records a vote on a proposal
+     * Adds voting power to yesVotes if support=true, else to noVotes
+     * Voting power is proportional to token holdings at time of vote
      * @param proposalId ID of the proposal to vote on
-     * @param support True for voting in favor, false for voting against
+     * @param support True for affirmative vote (yes), false for negative vote (no)
      */
     function vote(uint256 proposalId, bool support) external {
+        // Validate proposal exists
         require(proposalId > 0 && proposalId <= proposalCount, "Invalid proposal ID");
         
         Proposal storage proposal = proposals[proposalId];
         
+        // Check proposal is active and within voting period
         require(proposal.state == ProposalState.Active, "Proposal not active");
         require(block.timestamp <= proposal.votingDeadline, "Voting period ended");
         require(!proposal.hasVoted[msg.sender], "Already voted");
         
+        // Get voting power from token balance (1 token = 1 vote)
         uint256 votingPower = governanceToken.balanceOf(msg.sender);
         require(votingPower > 0, "No voting power");
         
+        // Record vote
         proposal.hasVoted[msg.sender] = true;
         proposal.voterWeights[msg.sender] = votingPower;
         
+        // Add to yesVotes or noVotes based on support
         if (support) {
-            proposal.votesFor += votingPower;
+            proposal.votesFor += votingPower;  // yesVotes
         } else {
-            proposal.votesAgainst += votingPower;
+            proposal.votesAgainst += votingPower;  // noVotes
         }
         
+        // Emit event for external indexing
         emit VoteCast(proposalId, msg.sender, support, votingPower);
     }
     
     /**
-     * @dev Execute a proposal if it has passed
+     * @dev executeTransfer - Transfers requested funds to the proposal's to address if it passes thresholds
+     * Auto-executes once affirmative votes exceed 50% of total voting power
      * @param proposalId ID of the proposal to execute
      */
-    function executeProposal(uint256 proposalId) external nonReentrant {
+    function executeTransfer(uint256 proposalId) public nonReentrant {
+        // Validate proposal exists
         require(proposalId > 0 && proposalId <= proposalCount, "Invalid proposal ID");
         
         Proposal storage proposal = proposals[proposalId];
         
+        // Check proposal state and timing
         require(proposal.state == ProposalState.Active, "Proposal not active");
         require(block.timestamp > proposal.votingDeadline, "Voting period not ended");
         
-        uint256 totalVotes = proposal.votesFor + proposal.votesAgainst;
-        uint256 totalSupply = governanceToken.totalSupply();
+        // Get total voting power (total supply of governance tokens)
+        uint256 totalVotingPower = governanceToken.totalSupply();
         
-        // Check quorum
-        require(
-            totalVotes * 100 >= totalSupply * quorumPercentage,
-            "Quorum not reached"
-        );
+        // Execution Rule: Transfer auto-executes if affirmative votes > 50% of total voting power
+        // Using votesFor * 2 > totalVotingPower to avoid floating point (equivalent to votesFor > 50%)
+        if (proposal.votesFor * 2 > totalVotingPower) {
+            // Proposal passed - affirmative votes exceed 50% of total voting power
+            require(
+                proposal.amount <= address(this).balance,
+                "Insufficient treasury balance"
+            );
+            
+            // Update state before transfer (checks-effects-interactions pattern)
+            proposal.state = ProposalState.Executed;
+            
+            // Transfer funds to recipient (to address)
+            (bool success, ) = proposal.recipient.call{value: proposal.amount}("");
+            require(success, "Transfer failed");
+            
+            // Emit event for external indexing
+            emit ProposalExecuted(proposalId, proposal.recipient, proposal.amount);
+        } else {
+            // Proposal rejected - did not meet 50% threshold
+            proposal.state = ProposalState.Rejected;
+            emit ProposalRejected(proposalId);
+        }
+    }
+    
+    /**
+     * @dev executeProposal - Alias for executeTransfer for backward compatibility
+     * @param proposalId ID of the proposal to execute
+     */
+    function executeProposal(uint256 proposalId) external nonReentrant {
+        // Call the main implementation (remove nonReentrant from this to avoid double guard)
+        require(proposalId > 0 && proposalId <= proposalCount, "Invalid proposal ID");
         
-        // Check majority
-        if (proposal.votesFor * 100 >= totalVotes * majorityPercentage) {
+        Proposal storage proposal = proposals[proposalId];
+        
+        // Check proposal state and timing
+        require(proposal.state == ProposalState.Active, "Proposal not active");
+        require(block.timestamp > proposal.votingDeadline, "Voting period not ended");
+        
+        // Get total voting power (total supply of governance tokens)
+        uint256 totalVotingPower = governanceToken.totalSupply();
+        
+        // Execution Rule: Transfer auto-executes if affirmative votes > 50% of total voting power
+        if (proposal.votesFor * 2 > totalVotingPower) {
             // Proposal passed
             require(
                 proposal.amount <= address(this).balance,
@@ -205,18 +281,19 @@ contract DecentralizedTreasury is ReentrancyGuard {
     }
     
     /**
-     * @dev Get proposal details
-     * @param proposalId ID of the proposal
+     * @dev getProposal - Returns stored proposal details for display and monitoring
+     * Provides complete information about a proposal's current state
+     * @param proposalId ID of the proposal to retrieve
      * @return id Proposal ID
-     * @return proposer Address of proposer
-     * @return recipient Address of recipient
-     * @return amount Amount to transfer
-     * @return description Proposal description
-     * @return votesFor Total votes in favor
-     * @return votesAgainst Total votes against
-     * @return createdAt Creation timestamp
-     * @return votingDeadline Voting deadline timestamp
-     * @return state Current proposal state
+     * @return proposer Address that created the proposal
+     * @return recipient Recipient of funds (to address)
+     * @return amount Amount of ETH to transfer
+     * @return description Purpose/description of the proposal
+     * @return votesFor Total affirmative votes (yesVotes)
+     * @return votesAgainst Total negative votes (noVotes)
+     * @return createdAt Timestamp when proposal was created
+     * @return votingDeadline Timestamp when voting period ends
+     * @return state Current state (Pending/Active/Executed/Rejected)
      */
     function getProposal(uint256 proposalId)
         external
@@ -274,29 +351,11 @@ contract DecentralizedTreasury is ReentrancyGuard {
     }
     
     /**
-     * @dev Set the voting period (governance can be added later)
+     * @dev Set the voting period
      * @param _votingPeriod New voting period in seconds
      */
     function setVotingPeriod(uint256 _votingPeriod) external {
         require(_votingPeriod > 0, "Voting period must be positive");
         votingPeriod = _votingPeriod;
-    }
-    
-    /**
-     * @dev Set the quorum percentage
-     * @param _quorumPercentage New quorum percentage (0-100)
-     */
-    function setQuorumPercentage(uint256 _quorumPercentage) external {
-        require(_quorumPercentage > 0 && _quorumPercentage <= 100, "Invalid percentage");
-        quorumPercentage = _quorumPercentage;
-    }
-    
-    /**
-     * @dev Set the majority percentage
-     * @param _majorityPercentage New majority percentage (0-100)
-     */
-    function setMajorityPercentage(uint256 _majorityPercentage) external {
-        require(_majorityPercentage > 0 && _majorityPercentage <= 100, "Invalid percentage");
-        majorityPercentage = _majorityPercentage;
     }
 }
