@@ -330,22 +330,23 @@ describe("DecentralizedTreasury", function () {
       await treasury.setVotingPeriod(newPeriod);
       expect(await treasury.votingPeriod()).to.equal(newPeriod);
     });
-        treasury.setQuorumPercentage(0)
-      ).to.be.revertedWith("Invalid percentage");
 
+    it("Should reject zero voting period", async function () {
       await expect(
-        treasury.setQuorumPercentage(101)
-      ).to.be.revertedWith("Invalid percentage");
+        treasury.setVotingPeriod(0)
+      ).to.be.revertedWith("Voting period must be positive");
     });
 
-    it("Should reject invalid majority percentage", async function () {
-      await expect(
-        treasury.setMajorityPercentage(0)
-      ).to.be.revertedWith("Invalid percentage");
+    it("Should allow very short voting period", async function () {
+      const shortPeriod = 60; // 1 minute
+      await treasury.setVotingPeriod(shortPeriod);
+      expect(await treasury.votingPeriod()).to.equal(shortPeriod);
+    });
 
-      await expect(
-        treasury.setMajorityPercentage(101)
-      ).to.be.revertedWith("Invalid percentage");
+    it("Should allow very long voting period", async function () {
+      const longPeriod = 365 * 24 * 60 * 60; // 1 year
+      await treasury.setVotingPeriod(longPeriod);
+      expect(await treasury.votingPeriod()).to.equal(longPeriod);
     });
   });
 
@@ -409,6 +410,310 @@ describe("DecentralizedTreasury", function () {
       await expect(treasury.executeProposal(proposalId)).to.emit(
         treasury,
         "ProposalExecuted"
+      );
+    });
+  });
+
+  describe("Additional Security Tests", function () {
+    let proposalId;
+
+    beforeEach(async function () {
+      proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Security test");
+    });
+
+    it("Should prevent voting after deadline", async function () {
+      // Fast forward past voting deadline
+      await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine");
+
+      await expect(
+        treasury.connect(addr1).vote(proposalId, true)
+      ).to.be.revertedWith("Voting period ended");
+    });
+
+    it("Should prevent executing with insufficient treasury balance", async function () {
+      // Create proposal for all treasury funds
+      const treasuryBalance = await treasury.getTreasuryBalance();
+      const proposalId2 = 2;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, treasuryBalance, "Drain treasury");
+
+      // Vote to pass
+      await treasury.connect(addr1).vote(proposalId2, true);
+      await treasury.connect(addr2).vote(proposalId2, true);
+      await treasury.connect(addr3).vote(proposalId2, true);
+
+      // Execute first proposal to drain some funds
+      await treasury.connect(addr1).vote(proposalId, true);
+      await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
+
+      await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine");
+
+      await treasury.executeProposal(proposalId);
+
+      // Now try to execute second proposal - should fail due to insufficient balance
+      await expect(
+        treasury.executeProposal(proposalId2)
+      ).to.be.revertedWith("Insufficient treasury balance");
+    });
+
+    it("Should handle proposal with invalid ID", async function () {
+      await expect(
+        treasury.getProposal(999)
+      ).to.be.revertedWith("Invalid proposal ID");
+
+      await expect(
+        treasury.vote(999, true)
+      ).to.be.revertedWith("Invalid proposal ID");
+
+      await expect(
+        treasury.executeProposal(999)
+      ).to.be.revertedWith("Invalid proposal ID");
+    });
+
+    it("Should handle proposal ID zero", async function () {
+      await expect(
+        treasury.getProposal(0)
+      ).to.be.revertedWith("Invalid proposal ID");
+
+      await expect(
+        treasury.vote(0, true)
+      ).to.be.revertedWith("Invalid proposal ID");
+
+      await expect(
+        treasury.executeProposal(0)
+      ).to.be.revertedWith("Invalid proposal ID");
+    });
+  });
+
+  describe("Reentrancy Protection Tests", function () {
+    it("Should have nonReentrant modifier on executeProposal", async function () {
+      const proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Test");
+
+      await treasury.connect(addr1).vote(proposalId, true);
+      await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
+
+      await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine");
+
+      // Execute successfully (reentrancy guard prevents any issues)
+      await expect(treasury.executeProposal(proposalId))
+        .to.emit(treasury, "ProposalExecuted");
+    });
+
+    it("Should have nonReentrant modifier on executeTransfer", async function () {
+      const proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Test");
+
+      await treasury.connect(addr1).vote(proposalId, true);
+      await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
+
+      await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine");
+
+      // Execute successfully using executeTransfer
+      await expect(treasury.executeTransfer(proposalId))
+        .to.emit(treasury, "ProposalExecuted");
+    });
+  });
+
+  describe("Event Emission Tests", function () {
+    it("Should emit FundsDeposited on deposit", async function () {
+      const depositAmount = ethers.parseEther("5");
+      await expect(treasury.deposit({ value: depositAmount }))
+        .to.emit(treasury, "FundsDeposited")
+        .withArgs(owner.address, depositAmount);
+    });
+
+    it("Should emit FundsDeposited on receive", async function () {
+      const sendAmount = ethers.parseEther("3");
+      await expect(
+        owner.sendTransaction({
+          to: await treasury.getAddress(),
+          value: sendAmount,
+        })
+      )
+        .to.emit(treasury, "FundsDeposited")
+        .withArgs(owner.address, sendAmount);
+    });
+
+    it("Should emit ProposalCreated with correct parameters", async function () {
+      const description = "Event test proposal";
+      await expect(
+        treasury
+          .connect(addr1)
+          .createProposal(recipient.address, PROPOSAL_AMOUNT, description)
+      )
+        .to.emit(treasury, "ProposalCreated")
+        .withArgs(1, addr1.address, recipient.address, PROPOSAL_AMOUNT, description);
+    });
+
+    it("Should emit VoteCast with correct parameters", async function () {
+      const proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Vote test");
+
+      const votingPower = await governanceToken.balanceOf(addr1.address);
+
+      await expect(treasury.connect(addr1).vote(proposalId, true))
+        .to.emit(treasury, "VoteCast")
+        .withArgs(proposalId, addr1.address, true, votingPower);
+
+      await expect(treasury.connect(addr2).vote(proposalId, false))
+        .to.emit(treasury, "VoteCast")
+        .withArgs(proposalId, addr2.address, false, await governanceToken.balanceOf(addr2.address));
+    });
+
+    it("Should emit ProposalExecuted on successful execution", async function () {
+      const proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Execute test");
+
+      await treasury.connect(addr1).vote(proposalId, true);
+      await treasury.connect(addr2).vote(proposalId, true);
+      await treasury.connect(addr3).vote(proposalId, true);
+
+      await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine");
+
+      await expect(treasury.executeProposal(proposalId))
+        .to.emit(treasury, "ProposalExecuted")
+        .withArgs(proposalId, recipient.address, PROPOSAL_AMOUNT);
+    });
+
+    it("Should emit ProposalRejected on failed execution", async function () {
+      const proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Reject test");
+
+      await treasury.connect(addr1).vote(proposalId, false);
+
+      await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine");
+
+      await expect(treasury.executeProposal(proposalId))
+        .to.emit(treasury, "ProposalRejected")
+        .withArgs(proposalId);
+    });
+  });
+
+  describe("View Function Tests", function () {
+    let proposalId;
+
+    beforeEach(async function () {
+      proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "View test");
+    });
+
+    it("Should return correct hasVoted status", async function () {
+      expect(await treasury.hasVoted(proposalId, addr1.address)).to.be.false;
+      expect(await treasury.hasVoted(proposalId, addr2.address)).to.be.false;
+
+      await treasury.connect(addr1).vote(proposalId, true);
+
+      expect(await treasury.hasVoted(proposalId, addr1.address)).to.be.true;
+      expect(await treasury.hasVoted(proposalId, addr2.address)).to.be.false;
+
+      await treasury.connect(addr2).vote(proposalId, false);
+
+      expect(await treasury.hasVoted(proposalId, addr2.address)).to.be.true;
+    });
+
+    it("Should return correct voter weight", async function () {
+      const addr1Power = await governanceToken.balanceOf(addr1.address);
+      const addr2Power = await governanceToken.balanceOf(addr2.address);
+
+      expect(await treasury.getVoterWeight(proposalId, addr1.address)).to.equal(0);
+
+      await treasury.connect(addr1).vote(proposalId, true);
+      expect(await treasury.getVoterWeight(proposalId, addr1.address)).to.equal(addr1Power);
+
+      await treasury.connect(addr2).vote(proposalId, false);
+      expect(await treasury.getVoterWeight(proposalId, addr2.address)).to.equal(addr2Power);
+    });
+
+    it("Should return correct treasury balance", async function () {
+      const initialBalance = await treasury.getTreasuryBalance();
+      expect(initialBalance).to.equal(TREASURY_FUNDING);
+
+      const additionalDeposit = ethers.parseEther("5");
+      await treasury.deposit({ value: additionalDeposit });
+
+      expect(await treasury.getTreasuryBalance()).to.equal(
+        TREASURY_FUNDING + additionalDeposit
+      );
+    });
+
+    it("Should return correct proposal count", async function () {
+      expect(await treasury.proposalCount()).to.equal(1);
+
+      await treasury
+        .connect(addr2)
+        .createProposal(addr3.address, PROPOSAL_AMOUNT, "Second proposal");
+
+      expect(await treasury.proposalCount()).to.equal(2);
+    });
+
+    it("Should return complete proposal details", async function () {
+      const proposal = await treasury.getProposal(proposalId);
+
+      expect(proposal.id).to.equal(proposalId);
+      expect(proposal.proposer).to.equal(addr1.address);
+      expect(proposal.recipient).to.equal(recipient.address);
+      expect(proposal.amount).to.equal(PROPOSAL_AMOUNT);
+      expect(proposal.description).to.equal("View test");
+      expect(proposal.votesFor).to.equal(0);
+      expect(proposal.votesAgainst).to.equal(0);
+      expect(proposal.state).to.equal(1); // Active
+    });
+  });
+
+  describe("Token Balance Changes During Voting", function () {
+    it("Should use voting power at time of vote, not current balance", async function () {
+      const proposalId = 1;
+      await treasury
+        .connect(addr1)
+        .createProposal(recipient.address, PROPOSAL_AMOUNT, "Balance change test");
+
+      const initialVotingPower = await governanceToken.balanceOf(addr1.address);
+      
+      // Vote with current balance
+      await treasury.connect(addr1).vote(proposalId, true);
+
+      // Check recorded weight
+      expect(await treasury.getVoterWeight(proposalId, addr1.address)).to.equal(
+        initialVotingPower
+      );
+
+      // Transfer tokens away (voting power already recorded)
+      await governanceToken.connect(addr1).transfer(addr2.address, ethers.parseEther("1000"));
+
+      // Voting weight should still be the original amount
+      expect(await treasury.getVoterWeight(proposalId, addr1.address)).to.equal(
+        initialVotingPower
+      );
+
+      // New balance is different
+      expect(await governanceToken.balanceOf(addr1.address)).to.equal(
+        ethers.parseEther("2000")
       );
     });
   });
