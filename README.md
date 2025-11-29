@@ -68,13 +68,61 @@ Run the comprehensive test suite:
 npm test
 ```
 
-The test suite includes:
+### Test Suite Overview
+
+The project includes **107+ test cases** across three test files:
+
+#### 1. GovernanceToken Unit Tests (38 tests)
+Tests for the ERC20 governance token contract:
+- Deployment and initialization
+- Token minting (owner-only)
+- ERC20 transfers and allowances
+- Voting power calculations
+- Ownership management
+- Edge cases
+
+#### 2. DecentralizedTreasury Unit Tests (~50 tests)
+Tests for the treasury governance contract:
 - Treasury deposit and balance management
 - Proposal creation with validation
 - Token-weighted voting mechanics
-- Quorum and majority threshold validation
 - Proposal execution and rejection flows
+- Security features (reentrancy protection, access control)
+- Event emissions
+- View functions
 - Edge cases and parameter management
+
+#### 3. System Integration Tests (19 tests)
+End-to-end tests for complete DAO workflows:
+- Complete DAO lifecycle (deploy → fund → propose → vote → execute)
+- Multiple concurrent proposals
+- Complex voting scenarios
+- Governance power dynamics
+- Treasury fund management
+- Real-world DAO operation simulation
+
+### Run Specific Test Files
+
+```bash
+# Run only GovernanceToken tests
+npx hardhat test test/GovernanceToken.test.js
+
+# Run only DecentralizedTreasury tests
+npx hardhat test test/DecentralizedTreasury.test.js
+
+# Run only System Integration tests
+npx hardhat test test/SystemIntegration.test.js
+```
+
+### Test Coverage
+
+- **GovernanceToken.sol**: 100% function coverage
+- **DecentralizedTreasury.sol**: 100% function coverage
+- **Integration**: Complete workflow coverage
+
+For detailed test coverage information, see [TEST_COVERAGE.md](./TEST_COVERAGE.md).
+
+For implementation details, see [TEST_IMPLEMENTATION_SUMMARY.md](./TEST_IMPLEMENTATION_SUMMARY.md).
 
 ## Deployment
 
