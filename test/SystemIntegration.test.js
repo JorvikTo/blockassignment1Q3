@@ -569,18 +569,14 @@ describe("System Integration Tests - Complete DAO Workflow", function () {
 
   describe("Real-world Scenario: Complete DAO Operation", function () {
     it("Should simulate a complete DAO quarterly cycle", async function () {
-      console.log("Starting quarterly DAO operation simulation...");
-
       // Quarter 1: Initial funding and setup
-      console.log("Q1: Community members fund the treasury");
       await treasury.connect(member1).deposit({ value: ethers.parseEther("50") });
       await treasury.connect(member2).deposit({ value: ethers.parseEther("30") });
       
       let treasuryBalance = await treasury.getTreasuryBalance();
-      console.log(`Treasury balance: ${ethers.formatEther(treasuryBalance)} ETH`);
+      expect(treasuryBalance).to.equal(TREASURY_FUNDING + ethers.parseEther("80"));
 
       // Proposal 1: Marketing budget
-      console.log("\nProposal 1: Marketing budget");
       await treasury
         .connect(member1)
         .createProposal(
@@ -596,11 +592,10 @@ describe("System Integration Tests - Complete DAO Workflow", function () {
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
       await ethers.provider.send("evm_mine");
 
-      await treasury.executeProposal(1);
-      console.log("Marketing proposal executed");
+      await expect(treasury.executeProposal(1))
+        .to.emit(treasury, "ProposalExecuted");
 
       // Proposal 2: Development grant
-      console.log("\nProposal 2: Development grant");
       await treasury
         .connect(member2)
         .createProposal(
@@ -616,11 +611,10 @@ describe("System Integration Tests - Complete DAO Workflow", function () {
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
       await ethers.provider.send("evm_mine");
 
-      await treasury.executeProposal(2);
-      console.log("Development grant executed");
+      await expect(treasury.executeProposal(2))
+        .to.emit(treasury, "ProposalExecuted");
 
       // Proposal 3: Community event (rejected)
-      console.log("\nProposal 3: Community event (expected to be rejected)");
       await treasury
         .connect(member3)
         .createProposal(
@@ -634,21 +628,20 @@ describe("System Integration Tests - Complete DAO Workflow", function () {
       await ethers.provider.send("evm_increaseTime", [3 * 24 * 60 * 60 + 1]);
       await ethers.provider.send("evm_mine");
 
-      await treasury.executeProposal(3);
-      console.log("Community event proposal rejected");
+      await expect(treasury.executeProposal(3))
+        .to.emit(treasury, "ProposalRejected");
 
-      // Final state
+      // Final state verification
       treasuryBalance = await treasury.getTreasuryBalance();
-      console.log(`\nFinal treasury balance: ${ethers.formatEther(treasuryBalance)} ETH`);
-      console.log(`Total proposals: ${await treasury.proposalCount()}`);
+      expect(treasuryBalance).to.equal(
+        TREASURY_FUNDING + ethers.parseEther("80") - ethers.parseEther("60")
+      );
 
       // Verify final state
       expect(await treasury.proposalCount()).to.equal(3);
       expect((await treasury.getProposal(1)).state).to.equal(2); // Executed
       expect((await treasury.getProposal(2)).state).to.equal(2); // Executed
       expect((await treasury.getProposal(3)).state).to.equal(3); // Rejected
-
-      console.log("\nQuarterly cycle simulation completed successfully!");
     });
   });
 });
