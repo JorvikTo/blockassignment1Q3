@@ -136,13 +136,22 @@ library Assert {
         emit AssertionEventInt(result, message, "greaterThan", a, b);
     }
 
-    function lesserThan(uint256 a, uint256 b, string memory message) public returns (bool result) {
+    function lessThan(uint256 a, uint256 b, string memory message) public returns (bool result) {
         result = (a < b);
-        emit AssertionEventUint(result, message, "lesserThan", a, b);
+        emit AssertionEventUint(result, message, "lessThan", a, b);
+    }
+
+    function lessThan(int256 a, int256 b, string memory message) public returns (bool result) {
+        result = (a < b);
+        emit AssertionEventInt(result, message, "lessThan", a, b);
+    }
+    
+    // Backward compatibility aliases
+    function lesserThan(uint256 a, uint256 b, string memory message) public returns (bool result) {
+        return lessThan(a, b, message);
     }
 
     function lesserThan(int256 a, int256 b, string memory message) public returns (bool result) {
-        result = (a < b);
-        emit AssertionEventInt(result, message, "lesserThan", a, b);
+        return lessThan(a, b, message);
     }
 }

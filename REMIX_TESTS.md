@@ -52,7 +52,9 @@ Assert.notEqual(address a, address b, string message)
 #### Comparison Assertions
 ```solidity
 Assert.greaterThan(uint256 a, uint256 b, string message)
-Assert.lesserThan(uint256 a, uint256 b, string message)
+Assert.lessThan(uint256 a, uint256 b, string message)
+// Also available: lesserThan (backward compatibility)
+```
 ```
 
 ### Test Naming Convention

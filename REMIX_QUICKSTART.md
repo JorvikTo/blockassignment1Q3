@@ -118,7 +118,8 @@ Supported types:
 
 ```solidity
 Assert.greaterThan(a, b, "message");
-Assert.lesserThan(a, b, "message");
+Assert.lessThan(a, b, "message");
+// Also available: lesserThan (backward compatibility)
 ```
 
 ## Writing Your Own Tests
