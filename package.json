@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "hardhat test",
+    "test:remix": "hardhat test test/RemixTests.test.js",
+    "test:all": "hardhat test test/*.test.js",
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js"
   },
@@ -13,9 +15,11 @@
   "license": "ISC",
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.3",
+    "@remix-project/remix-lib": "^0.5.88",
     "chai": "^6.2.0",
     "ethers": "^6.15.0",
     "hardhat": "^3.0.11",
+    "remix-tests": "^0.1.34",
     "solc": "^0.8.20"
   },
   "dependencies": {

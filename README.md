@@ -62,7 +62,7 @@ npm run compile
 
 ## Testing
 
-This project includes two comprehensive test suites:
+This project includes three comprehensive test suites:
 
 ### JavaScript Tests (Hardhat)
 
@@ -79,6 +79,22 @@ The JavaScript test suite includes:
 - Quorum and majority threshold validation
 - Proposal execution and rejection flows
 - Edge cases and parameter management
+
+### Remix Test Framework (NEW)
+
+The project includes **Remix-compatible test framework** tests written in Solidity:
+
+```bash
+npm run test:remix
+```
+
+**Remix Test Suite** (30 tests):
+- **GovernanceToken unit tests** (11 tests) - `test/remix/GovernanceTokenRemixTest.sol`
+- **DecentralizedTreasury unit tests** (11 tests) - `test/remix/DecentralizedTreasuryRemixTest.sol`
+- **System integration tests** (8 tests) - `test/remix/TreasurySystemRemixTest.sol`
+- **Assert library** - `test/remix/Assert.sol` - Remix-compatible assertions for Solidity 0.8.20
+
+See `REMIX_TESTS.md` for detailed documentation on the Remix test framework.
 
 ### Solidity Tests (Native)
 
