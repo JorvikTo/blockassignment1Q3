@@ -62,19 +62,41 @@ npm run compile
 
 ## Testing
 
-Run the comprehensive test suite:
+This project includes two comprehensive test suites:
+
+### JavaScript Tests (Hardhat)
+
+Run the JavaScript test suite:
 
 ```bash
 npm test
 ```
 
-The test suite includes:
+The JavaScript test suite includes:
 - Treasury deposit and balance management
 - Proposal creation with validation
 - Token-weighted voting mechanics
 - Quorum and majority threshold validation
 - Proposal execution and rejection flows
 - Edge cases and parameter management
+
+### Solidity Tests (Native)
+
+The project also includes a comprehensive **Solidity-based test suite** that runs on-chain tests written in Solidity. These tests provide:
+
+- **36 comprehensive tests** across 3 test files
+- **Unit tests** for GovernanceToken (10 tests)
+- **Unit tests** for DecentralizedTreasury (18 tests)
+- **System integration tests** (8 tests)
+
+**Test Files**:
+- `test/GovernanceToken.t.sol` - GovernanceToken unit tests
+- `test/DecentralizedTreasury.t.sol` - DecentralizedTreasury unit tests
+- `test/DecentralizedTreasurySystem.t.sol` - System integration tests
+- `test/TestRunner.sol` - Test orchestration and reporting
+- `test/SolidityTests.test.js` - JavaScript wrapper to run Solidity tests
+
+The Solidity tests can be executed via the TestRunner contract or through the JavaScript test wrapper. See `SOLIDITY_TESTS.md` for detailed documentation on the Solidity test suite.
 
 ## Deployment
 
