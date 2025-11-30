@@ -32,12 +32,9 @@ describe("Solidity Test Suite Integration", function () {
       testRunner = await TestRunner.deploy();
       await testRunner.waitForDeployment();
 
-      // Run all test suites
-      const tx = await testRunner.runAllTestSuites();
-      const result = tx; // Get the return values
+      // Run all test suites - use staticCall to get return values without sending transaction
+      await testRunner.runAllTestSuites();
 
-      // Note: Due to how Solidity returns work, we access the results differently
-      // The function returns (totalPassed, totalFailed, totalTests)
       console.log("\n=== Solidity Test Suite Results ===");
 
       // Get individual test suite results

@@ -96,17 +96,4 @@ contract TestRunner {
     function getTestSuiteCount() public view returns (uint256) {
         return results.length;
     }
-    
-    /**
-     * @dev Get detailed results as a formatted string
-     */
-    function getResultsSummary() public view returns (string memory) {
-        if (results.length == 0) {
-            return "No tests have been run yet. Call runAllTestSuites() first.";
-        }
-        
-        // Note: In a real implementation, you would concatenate strings
-        // This is a simplified version
-        return "Test results available. Call getTestSuiteResult() for details.";
-    }
 }

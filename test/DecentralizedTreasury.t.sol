@@ -76,8 +76,8 @@ contract DecentralizedTreasuryTest {
         token.transfer(voter2, 2000 * 10**18);
         token.transfer(voter3, 1000 * 10**18);
         
-        // Fund treasury
-        payable(address(treasury)).transfer(TREASURY_FUNDING);
+        // Fund treasury using deposit function instead of transfer
+        treasury.deposit{value: TREASURY_FUNDING}();
     }
     
     /**

@@ -35,7 +35,9 @@ contract DecentralizedTreasurySystemTest {
     function setUp() public {
         token = new GovernanceToken("Governance Token", "GOV", INITIAL_SUPPLY);
         treasury = new DecentralizedTreasury(address(token));
-        payable(address(treasury)).transfer(TREASURY_FUNDING);
+        
+        // Fund treasury using deposit function
+        treasury.deposit{value: TREASURY_FUNDING}();
     }
     
     /**
